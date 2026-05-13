@@ -1,6 +1,6 @@
 # OpenAlex Core Area Analysis
 
-This repository contains a three-notebook workflow for retrieving OpenAlex publication data, calculating institution-level metrics, and producing figures for a core-area analysis.
+This repository contains a three-notebook workflow for retrieving OpenAlex publication data, calculating institution-level metrics, and producing figures for a core-area analysis. This workflow was developed by Manuel Llano and Kasper Abcouwer (UvA UB) inspired by the methodology of Jules van Rooij (RUG).
 
 The notebooks are intentionally kept separate so each stage can be run, checked, and rerun independently:
 
