@@ -63,8 +63,6 @@ export EMAIL="your.email@example.com"
 export OPENALEX_API_KEY="your_openalex_api_key"
 ```
 
-The API key is optional for many OpenAlex requests, but using an email address is recommended.
-
 ## Python requirements
 
 Install the main dependencies with:
