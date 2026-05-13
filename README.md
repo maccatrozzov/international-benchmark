@@ -38,7 +38,7 @@ If the notebooks are stored in the repository root rather than a `notebooks/` fo
 The retrieval notebook expects a curated and deduplicated CSV file at:
 
 ```text
-data/raw/pure_UU.csv
+data/raw/input.csv
 ```
 
 At minimum, the input file should contain a DOI column:
