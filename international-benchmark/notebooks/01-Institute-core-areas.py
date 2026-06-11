@@ -22,6 +22,9 @@ END_YEAR = 2025
 
 df = pd.read_pickle('data/interim/openalex-total-institute-output.pickle')
 
+print(df['SDG.sdg_display_name.openalex'])
+print(df['SDG.sdg_score.openalex'])
+
 
 # Define Top-N topics (default n=5)
 n = 5
@@ -181,6 +184,7 @@ def _retry_get(session: requests.Session, url: str, *, headers: dict, params: di
 def _flatten_work(work: dict) -> dict:
     """Flatten a Work object into the schema used in your pipeline."""
     topic = work.get("primary_topic") or {}
+    sdgs = work.get("sustainable_development_goals") or []
     authorships = work.get("authorships") or []
     open_access = work.get("open_access") or {}
     primary_location = work.get("primary_location") or {}
@@ -205,11 +209,22 @@ def _flatten_work(work: dict) -> dict:
         insts = a.get("institutions") or []
         inst_ids_per_author.append(";".join([i.get("id", "") or "" for i in insts]))
         inst_names_per_author.append(";".join([i.get("display_name", "") or "" for i in insts]))
+    sdg_names = []
+    sdg_scores = []
+    sdg_ids = []
+    for sdg in sdgs:
+        sdg_names.append(sdg.get("display_name", "") or "")
+        sdg_scores.append(float(sdg.get("score", 0.0) or 0.0))
+        sdg_ids.append(sdg.get("id", "") or "")
 
     return {
         "primary_topic.topic_id.openalex": topic.get("id", "") or "",
         "primary_topic.topic_score.openalex": float(topic.get("score", 0.0) or 0.0),
         "primary_topic.topic_display_name.openalex": topic.get("display_name", "") or "",
+
+        "SDG.sdg_display_name.openalex": ";".join(sdg_names),
+        "SDG.sdg_score.openalex": ";".join(sdg_scores),
+        "SDG.sdg_id.openalex": ";".join(sdg_ids),
 
         "authorships.author.author_id.openalex": ";".join(author_ids),
         "authorships.author.author_display_names.openalex": ";".join(author_names),
