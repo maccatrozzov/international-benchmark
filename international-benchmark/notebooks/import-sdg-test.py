@@ -16,43 +16,41 @@ OPENALEX_API_KEY = os.getenv('OPENALEX_API_KEY')
 EMAIL = os.getenv('EMAIL')
 
 
+df = pd.read_pickle('data/interim/openalex-total-institute-output.pickle')
+
 # -------------------- Config --------------------
 START_YEAR = 2019
 END_YEAR = 2025
 
-df = pd.read_pickle('data/interim/openalex-total-institute-output.pickle')
+# Define Top-N sdgs (default n=5)
+n = 1
 
+def filter_top_n_sdgs(df, n=5):
+    # Clean up sdg ids (drop blanks/NA)
+    sdg_series = df['SDG.sdg_id.openalex'].fillna("").astype(str)
+    sdg_series = sdg_series[sdg_series.str.len() > 0]
 
+    # Step 1: Count occurrences of each sdg_id
+    sdg_counts = sdg_series.value_counts()
 
-# Define Top-N topics (default n=5)
-n = 5
-
-def filter_top_n_topics(df, n=5):
-    # Clean up topic ids (drop blanks/NA)
-    topic_series = df['primary_topic.topic_id.openalex'].fillna("").astype(str)
-    topic_series = topic_series[topic_series.str.len() > 0]
-
-    # Step 1: Count occurrences of each topic_id
-    topic_counts = topic_series.value_counts()
-
-    if topic_counts.empty:
-        print("No primary_topic IDs found in the dataframe.")
+    if sdg_counts.empty:
+        print("No SDG found in the dataframe.")
         return df.iloc[0:0].copy(), 0.0
 
-    # Step 2: SELECT N TOPICS
-    top_n_topics = topic_counts.head(n)
+    # Step 2: SELECT N SDGS
+    top_n_sdgs = sdg_counts.head(n)
+    
+    # Step 3: Filter the dataframe to only include rows with the top N sdgs
+    df_institute_core_area = df[df['SDG.sdg_id.openalex'].isin(top_n_sdgs.index)]
 
-    # Step 3: Filter the dataframe to only include rows with the top N topics
-    df_institute_core_area = df[df['primary_topic.topic_id.openalex'].isin(top_n_topics.index)]
-
-    # Step 4: Calculate the percentage of rows with top N topics
+    # Step 4: Calculate the percentage of rows with top N sdgs
     total_rows = len(df)
     top_n_rows = len(df_institute_core_area)
     percentage = (top_n_rows / total_rows) * 100 if total_rows else 0.0
 
-    # Step 5: Print the value counts for the topic ids
-    print("\nCore area topics (by topic_id):")
-    print(top_n_topics)
+    # Step 5: Print the value counts for the sdg ids
+    print("\nCore area sdgs (by SDG Id):")
+    print(top_n_sdgs)
 
     return df_institute_core_area, percentage
 
@@ -67,12 +65,13 @@ def _openalex_params():
         params["api_key"] = OPENALEX_API_KEY
     return params
 
-def count_works_for_topic(topic_id: str, start_year: int, end_year: int) -> int:
+def count_works_for_sdg(sdg_id: str, start_year: int, end_year: int) -> int:
     """
-    Count works for a topic over a publication year range.
+    Count works for a sdg over a publication year range.
     Uses proper range syntax: publication_year:START-END
     """
-    if not topic_id or not isinstance(topic_id, str):
+
+    if not sdg_id or not isinstance(sdg_id, str):
         return 0
     if start_year is None or end_year is None:
         return 0
@@ -81,9 +80,9 @@ def count_works_for_topic(topic_id: str, start_year: int, end_year: int) -> int:
 
     base_url = "https://api.openalex.org/works"
 
-    # Build filter. topic_id can be full URL (https://openalex.org/T...) or short (T...).
+    # Build filter. sdg_id can be full URL (https://openalex.org/T...) or short (T...).
     # Requests will URL-encode the filter value automatically.
-    filter_value = f"primary_topic.id:{topic_id},publication_year:{start_year}-{end_year}"
+    filter_value = f"sustainable_development_goals.id:{sdg_id},publication_year:{start_year}-{end_year}"
 
     params = {
         "filter": filter_value,
@@ -101,33 +100,33 @@ def count_works_for_topic(topic_id: str, start_year: int, end_year: int) -> int:
         if resp.status_code == 200:
             return int((resp.json() or {}).get("meta", {}).get("count", 0) or 0)
         else:
-            print(f"[warn] OpenAlex response {resp.status_code} for topic {topic_id}")
+            print(f"[warn] OpenAlex response {resp.status_code} for sdg {sdg_id}")
             return 0
     except Exception as e:
-        print(f"[error] Counting topic {topic_id} failed: {e}")
+        print(f"[error] Counting sdg {sdg_id} failed: {e}")
         return 0
 
 def estimate_total_works(df_core, start_year=START_YEAR, end_year=END_YEAR):
     """
-    Sum counts across unique topics present in df_core over a fixed publication-year span.
+    Sum counts across unique sdgs present in df_core over a fixed publication-year span.
     """
-    # Unique topics
-    topics = (
-        df_core['primary_topic.topic_id.openalex']
+    # Unique sdgs
+    sdgs = (
+        df_core['SDG.sdg_id.openalex']
         .dropna()
         .astype(str)
         .str.strip()
     )
-    topics = topics[topics != ""].unique()
+    sdgs = sdgs[sdgs != ""].unique()
 
-    if topics.size == 0:
-        print("No topics in the core-area dataframe.")
+    if sdgs.size == 0:
+        print("No SDG in the core-area dataframe.")
         return
 
     total_works = 0
-    for t in topics:
-        cnt = count_works_for_topic(t, start_year, end_year)
-        print(f"Topic {t} has {cnt} works from {start_year} to {end_year}.")
+    for sdg in sdgs:
+        cnt = count_works_for_sdg(sdg, start_year, end_year)
+        print(f"SDG {sdg} has {cnt} works from {start_year} to {end_year}.")
         total_works += cnt
 
     print(f"\nTotal estimated number of works in Global Core area: {total_works}")
@@ -179,8 +178,98 @@ def _retry_get(session: requests.Session, url: str, *, headers: dict, params: di
 
 # -------------------- Transformation helpers --------------------
 
-def _flatten_work(work: dict) -> dict:
+def _flatten_work(work: dict, sdg_id) -> dict:
     """Flatten a Work object into the schema used in your pipeline."""
+    
+    institute = work.get("key_display_name")
+    institute_id = work.get("key")
+    publication_number = work.get("count")
+    
+    # topic = work.get("primary_topic") or {}
+    # sdgs = work.get("sustainable_development_goals") or []
+    # authorships = work.get("authorships") or []
+    # open_access = work.get("open_access") or {}
+    # primary_location = work.get("primary_location") or {}
+    # source = primary_location.get("source") or {}
+
+    # # --- NEW: citation_normalized_percentile ---
+    # cnp = work.get("citation_normalized_percentile") or {}
+    # cnp_value = cnp.get("value", None)
+    # cnp_top_1 = cnp.get("is_in_top_1_percent", None)
+    # cnp_top_10 = cnp.get("is_in_top_10_percent", None)
+
+    # author_ids = []
+    # author_names = []
+    # inst_ids_per_author = []
+    # inst_names_per_author = []
+
+    # for a in authorships:
+    #     a_author = a.get("author") or {}
+    #     author_ids.append(a_author.get("id", "") or "")
+    #     author_names.append(a_author.get("display_name", "") or "")
+
+    #     insts = a.get("institutions") or []
+    #     inst_ids_per_author.append(";".join([i.get("id", "") or "" for i in insts]))
+    #     inst_names_per_author.append(";".join([i.get("display_name", "") or "" for i in insts]))
+
+    # sdg_names = []
+    # sdg_ids = []
+    # for sdg in sdgs:
+    #     sdg_names.append(sdg.get("display_name", "") or "")
+    #     sdg_ids.append(sdg.get("id", "") or "")
+
+    return{
+        "institute.openalex": institute,
+        "institute_is.openalex": institute_id,
+        "publication_count.openalex": publication_number,
+        "sdg_id.openalex": sdg_id
+    }
+    # return {
+    #     "primary_topic.topic_score.openalex": float(topic.get("score", 0.0) or 0.0),
+    #     "primary_topic.topic_display_name.openalex": topic.get("display_name", "") or "",
+
+    #     #SDG
+    #     "SDG.sdg_display_name.openalex": ";".join(sdg_names),
+    #     "SDG.sdg_id.openalex": ";".join(sdg_ids),
+
+    #     "authorships.author.author_id.openalex": ";".join(author_ids),
+    #     "authorships.author.author_display_names.openalex": ";".join(author_names),
+    #     "authorships.institutions.institutions_id.openalex": ";".join(inst_ids_per_author),
+    #     "authorships.institutions.display_name.openalex": ";".join(inst_names_per_author),
+
+    #     "work_id.openalex": work.get("id", "") or "",
+
+    #     "primary_location.is_oa": bool(primary_location.get("is_oa", False)),
+    #     "primary_location.landing_page_url": primary_location.get("landing_page_url", "") or "",
+    #     "primary_location.pdf_url.openalex": primary_location.get("pdf_url", "") or "",
+    #     "primary_location.source_id.openalex": source.get("id", "") or "",
+    #     "primary_location.source_display_name.openalex": source.get("display_name", "") or "",
+    #     "primary_location.source_issn_l.openalex": source.get("issn_l", "") or "",
+    #     "primary_location.source_issn.openalex": ";".join(source.get("issn") or []),
+    #     "primary_location.source_host_organization.openalex": source.get("host_organization", "") or "",
+    #     "primary_location.source_type.openalex": source.get("type", "") or "",
+
+    #     "publication_date.openalex": work.get("publication_date", "") or "",
+    #     "publication_year.openalex": int(work.get("publication_year", 0) or 0),
+
+    #     "oa_status_open_access.openalex": open_access.get("oa_status", "") or "",
+    #     "open_access.is_oa": bool(open_access.get("is_oa", False)),
+    #     "open_access.oa_url": open_access.get("oa_url", "") or "",
+
+    #     "cited_by_count.openalex": int(work.get("cited_by_count", 0) or 0),
+    #     "cited_by_api_url.openalex": work.get("cited_by_api_url", "") or "",
+
+    #     "fwci.openalex": float(work.get("fwci", 0.0) or 0.0),
+
+    #     # --- NEW OUTPUT FIELDS ---
+    #     "citation_normalized_percentile.value.openalex": (float(cnp_value) if cnp_value is not None else None),
+    #     "citation_normalized_percentile.is_in_top_1_percent.openalex": (bool(cnp_top_1) if cnp_top_1 is not None else None),
+    #     "citation_normalized_percentile.is_in_top_10_percent.openalex": (bool(cnp_top_10) if cnp_top_10 is not None else None),
+    # }
+
+def _flatten_work_institute(work: dict) -> dict:
+    """Flatten a Work object into the schema used in your pipeline."""
+    
     topic = work.get("primary_topic") or {}
     sdgs = work.get("sustainable_development_goals") or []
     authorships = work.get("authorships") or []
@@ -207,21 +296,20 @@ def _flatten_work(work: dict) -> dict:
         insts = a.get("institutions") or []
         inst_ids_per_author.append(";".join([i.get("id", "") or "" for i in insts]))
         inst_names_per_author.append(";".join([i.get("display_name", "") or "" for i in insts]))
+
     sdg_names = []
-    sdg_scores = []
     sdg_ids = []
     for sdg in sdgs:
         sdg_names.append(sdg.get("display_name", "") or "")
-        sdg_scores.append(float(sdg.get("score", 0.0) or 0.0))
         sdg_ids.append(sdg.get("id", "") or "")
 
+    
     return {
-        "primary_topic.topic_id.openalex": topic.get("id", "") or "",
         "primary_topic.topic_score.openalex": float(topic.get("score", 0.0) or 0.0),
         "primary_topic.topic_display_name.openalex": topic.get("display_name", "") or "",
 
+        #SDG
         "SDG.sdg_display_name.openalex": ";".join(sdg_names),
-        "SDG.sdg_score.openalex": ";".join(sdg_scores),
         "SDG.sdg_id.openalex": ";".join(sdg_ids),
 
         "authorships.author.author_id.openalex": ";".join(author_ids),
@@ -258,15 +346,14 @@ def _flatten_work(work: dict) -> dict:
         "citation_normalized_percentile.is_in_top_1_percent.openalex": (bool(cnp_top_1) if cnp_top_1 is not None else None),
         "citation_normalized_percentile.is_in_top_10_percent.openalex": (bool(cnp_top_10) if cnp_top_10 is not None else None),
     }
-
 # ----------------------- Core fetching -----------------------
 
-def fetch_openalex_data_for_topic(topic_id: str, start_year: int, end_year: int, *, per_page: int = 200, session: requests.Session | None = None) -> List[Dict[str, Any]]:
+def fetch_openalex_data_for_sdg(sdg_id: str, start_year: int, end_year: int, *, per_page: int = 200, session: requests.Session | None = None) -> List[Dict[str, Any]]:
     """
     Fetch ALL works for a given primary_topic.id within [start_year, end_year] using cursor pagination.
     Sequential within a topic (to respect cursor ordering), suitable for parallel fan-out across topics.
     """
-    if not topic_id:
+    if not sdg_id:
         return []
 
     if start_year and end_year and int(start_year) > int(end_year):
@@ -275,7 +362,8 @@ def fetch_openalex_data_for_topic(topic_id: str, start_year: int, end_year: int,
     base_url = "https://api.openalex.org/works"
     headers = {"User-Agent": _user_agent("TopicWorks")}
     params = {
-        "filter": f"primary_topic.id:{topic_id},publication_year:{int(start_year)}-{int(end_year)}",
+        "filter": f"sustainable_development_goals.id:{sdg_id},publication_year:{int(start_year)}-{int(end_year)}",
+        "group_by" : "authorships.institutions.id",
         "per-page": int(per_page),
         "cursor": "*",
         **_openalex_params(),
@@ -284,16 +372,64 @@ def fetch_openalex_data_for_topic(topic_id: str, start_year: int, end_year: int,
     local_session = session or requests.Session()
     out = []
 
+
     while True:
         resp = _retry_get(local_session, base_url, headers=headers, params=params)
         if not resp or not resp.ok:
-            print(f"[topic {topic_id}] HTTP {getattr(resp,'status_code', 'NA')}: {getattr(resp,'text','')[:200]}")
+            print(f"[sdg {sdg_id}] HTTP {getattr(resp,'status_code', 'NA')}: {getattr(resp,'text','')[:200]}")
             break
-
+        
         payload = resp.json() or {}
-        works = payload.get("results") or []
-        out.extend(_flatten_work(w) for w in works)
+        works = payload.get("group_by") or []
 
+        out.extend(_flatten_work(w, sdg_id) for w in works)
+    
+        next_cursor = (payload.get("meta") or {}).get("next_cursor")
+        if not next_cursor:
+            break
+        params["cursor"] = next_cursor
+
+    return out
+
+#query to collect data per sdg per institute
+#trying to look for option to avoid to collect all publications, but so far no luck
+#needs to be parallelized per institute
+def fetch_openalex_data_for_institute(sdg_id: str, institute_id: str, start_year: int, end_year: int, *, per_page: int = 200, session: requests.Session | None = None) -> List[Dict[str, Any]]:
+    """
+    Fetch ALL works for a given primary_topic.id within [start_year, end_year] using cursor pagination.
+    Sequential within a topic (to respect cursor ordering), suitable for parallel fan-out across topics.
+    """
+    if not sdg_id:
+        return []
+
+    if start_year and end_year and int(start_year) > int(end_year):
+        start_year, end_year = end_year, start_year
+
+    base_url = "https://api.openalex.org/works"
+    headers = {"User-Agent": _user_agent("TopicWorks")}
+    params = {
+        "filter": f"sustainable_development_goals.id:{sdg_id},publication_year:{int(start_year)}-{int(end_year)},authorships.affiliations.institution_ids:{institute_id}",
+        "select" : "doi, fwci, publication_date, citation_normalized_percentile, cited_by_count",
+        "per-page": int(per_page),
+        "cursor": "*",
+        **_openalex_params(),
+    }
+
+    local_session = session or requests.Session()
+    out = []
+
+
+    while True:
+        resp = _retry_get(local_session, base_url, headers=headers, params=params)
+        if not resp or not resp.ok:
+            print(f"[sdg {sdg_id}] HTTP {getattr(resp,'status_code', 'NA')}: {getattr(resp,'text','')[:200]}")
+            break
+        
+        payload = resp.json() or {}
+        works = payload.get("group_by") or []
+
+        out.extend(_flatten_work_institute(w) for w in works)
+    
         next_cursor = (payload.get("meta") or {}).get("next_cursor")
         if not next_cursor:
             break
@@ -303,15 +439,15 @@ def fetch_openalex_data_for_topic(topic_id: str, start_year: int, end_year: int,
 
 # -------------------- Parallel wrapper ---------------------
 
-def _unique_clean_topics(df_institute_core_area: pd.DataFrame) -> List[str]:
-    topics = (
-        df_institute_core_area["primary_topic.topic_id.openalex"]
+def _unique_clean_sdgs(df_institute_core_area: pd.DataFrame) -> List[str]:
+    sdgs = (
+        df_institute_core_area["SDG.sdg_id.openalex"]
         .dropna()
         .astype(str)
         .str.strip()
         .tolist()
     )
-    return sorted({t for t in topics if t})
+    return sorted({sdg for sdg in sdgs if sdg})
 
 def create_global_core_area_parallel(
     df_institute_core_area: pd.DataFrame,
@@ -326,35 +462,40 @@ def create_global_core_area_parallel(
     - Threads are appropriate because requests is I/O-bound.
     - Adjust max_workers conservatively to respect OpenAlex rate limits.
     """
-    topics = _unique_clean_topics(df_institute_core_area)
-    if not topics:
+    sdgs = _unique_clean_sdgs(df_institute_core_area)
+    sdgs_cleaned = []
+    for sdg in sdgs:
+        sdgs_cleaned.append(sdg.replace('https://metadata.un.org/sdg/',''))
+   
+    if not sdgs:
         return pd.DataFrame(columns=df_institute_core_area.columns)
 
     all_rows: list[dict] = []
+    
     with requests.Session() as session:
         session.headers.update({"User-Agent": _user_agent("Pool")})
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(
-                    fetch_openalex_data_for_topic,
-                    topic_id=t,
+                    fetch_openalex_data_for_sdg,
+                    sdg_id=sdg,
                     start_year=start_year,
                     end_year=end_year,
                     per_page=per_page,
                     session=session,
-                ): t
-                for t in topics
+                ): sdg
+                for sdg in sdgs
             }
 
             for fut in as_completed(futures):
-                t = futures[fut]
+                sdg = futures[fut]
                 try:
                     rows = fut.result()
                     all_rows.extend(rows)
-                    print(f"[topic {t}] fetched {len(rows)} works.")
+                    print(f"[sdg {sdg[1]}] fetched {len(rows)} works.")
                 except Exception as e:
-                    print(f"[topic {t}] failed: {e}")
+                    print(f"[sdg {sdg[1]}] failed: {e}")
 
     df = pd.DataFrame(all_rows)
 
@@ -367,8 +508,8 @@ def create_global_core_area_parallel(
 # -------------------- Usage --------------------
 
 
-# Apply function
-df_institute_core_area, top_n_percentage = filter_top_n_topics(df, n)
+# # Apply function
+df_institute_core_area, top_n_percentage = filter_top_n_sdgs(df, n)
 print(f"Top {n} most recurrent topics represent {top_n_percentage:.2f}% of the total data.")
 # df_institute_core_area.head()
 df_institute_core_area.to_pickle('data/processed/institute_core_area.pickle')
@@ -385,3 +526,30 @@ df_global_core_area = create_global_core_area_parallel(
 )
 
 df_global_core_area.to_pickle('data/processed/global_core_area.pickle')
+
+# df_global_core_area = pd.read_pickle('data/processed/global_core_area.pickle')
+# print(df_global_core_area.head())
+# print("-------------")
+# sorted_df_global_core_area = df_global_core_area.sort_values(["sdg_id.openalex", "publication_count.openalex"], ascending= False).groupby('sdg_id.openalex')
+# print(sorted_df_global_core_area.head(10))
+# print(df_global_core_area.loc[df_global_core_area["institute.openalex"]=="University of Amsterdam"])
+
+
+
+# df_sum = df_global_core_area.groupby(["institute.openalex","institute_id.openalex"], as_index=False)['publication_count.openalex'].sum()
+
+
+# df_sum = df_sum.sort_values(["publication_count.openalex"], ascending= False)
+# min = df_sum.loc[df_sum["institute.openalex"]=="University of Amsterdam"]['publication_count.openalex'].values[0]
+# uvaRank = df_sum[df_sum['publication_count.openalex'] >= min].count().values[0]
+
+
+# ## select top 50 institutions or up to UvA rank
+# N = 50
+# if uvaRank > N:
+#     N = uvaRank
+# df_sum = df_sum.index[:N]
+
+
+# # # query for sdg, grouped by institution, open access publications:
+# # # https://api.openalex.org/works?filter=sustainable_development_goals.id:10,publication_year:2019-2025,is_oa:true&group_by=authorships.affiliations.institution_ids     
