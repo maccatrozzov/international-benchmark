@@ -213,9 +213,9 @@ def _flatten_work(work: dict) -> dict:
     
     
     for sdg in sdgs:
-        sdg_names.append(sdg.get("display_name", "") or "")
-        sdg_scores.append(float(sdg.get("score", 0.0) or 0.0))
-        sdg_ids.append(sdg.get("id", "") or "")
+        sdg_names.append(sdg.get("display_name"))
+        sdg_scores.append(float(sdg.get("score", 0.0)))
+        sdg_ids.append(sdg.get("id"))
 
 
     return {

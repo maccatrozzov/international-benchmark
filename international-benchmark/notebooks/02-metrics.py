@@ -180,7 +180,7 @@ def compute_institution_table(exploded: pd.DataFrame) -> tuple[pd.DataFrame, int
 
     grp = dedup.groupby("institution_id", as_index=False).agg(
         UNIVERSITY=("institution_label", "first"),
-        SDG=("SDG.sdg_display_name.openalex", "unique"),
+        SDG=("SDG.sdg_display_name.openalex", set),
         P=("work_id.openalex", "nunique"),
         C=("cited_by_count.openalex", "sum"),
         FWCI=("fwci.openalex", "mean"),
@@ -230,10 +230,10 @@ def compute_institute_overall_row(institute_df: pd.DataFrame, global_denominator
     inst_total_works = inst_dedup["work_id.openalex"].nunique()
     inst_total_citations = int(inst_dedup["cited_by_count.openalex"].sum())
     
-    
-    inst_SDGs = inst_exploded.groupby(by='institution_id').agg({'SDG.sdg_display_name.openalex':lambda x: list(x)})
-    # print(inst_SDGs)
+    # df1 = df.groupby('States').agg({'Sales':lambda x: np.sum(x) if (x>7).any() else 0})
 
+    inst_SDGs = inst_exploded.groupby(by='institution_id').agg({'SDG.sdg_display_name.openalex':lambda x: list(x)})
+    
     per_work = inst_df[[
         "work_id.openalex",
         "fwci.openalex",
@@ -260,12 +260,12 @@ def compute_institute_overall_row(institute_df: pd.DataFrame, global_denominator
     oa_share = per_work["open_access.is_oa"].mean(skipna=True)
 
     global_total_works, global_total_citations = global_denominators
-    print(inst_SDGs)
+   
 
     return {
         "institution_id": "INSTITUTE_CORE_AREA",
         "UNIVERSITY": INSTITUTE_LABEL,
-        "SDG": ";".join(inst_SDGs),
+        "SDG": ",".join(inst_SDGs),
         "#P": inst_total_works,
         "%P": (inst_total_works / global_total_works * 100.0) if global_total_works else 0.0,
         "#C": inst_total_citations,
@@ -298,7 +298,7 @@ def build_institution_metrics_dataframe(dataset: str = DATASET) -> pd.DataFrame:
         [summary, pd.DataFrame([compute_institute_overall_row(institute_df, global_denoms)])],
         ignore_index=True,
     )
-    print(final_df["SDG"])
+    # print(final_df["SDG"])
     final_df["__sort_core_last"] = (final_df["UNIVERSITY"] == INSTITUTE_LABEL).astype(int)
     final_df = final_df.sort_values(["__sort_core_last", "#P", "#C"], ascending=[True, False, False]).reset_index(drop=True)
 
