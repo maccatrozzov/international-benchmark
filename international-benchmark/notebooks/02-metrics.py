@@ -135,6 +135,7 @@ def explode_by_institution(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     cols = [
         "work_id.openalex",
+        "SDG.sdg_display_name.openalex",
         "fwci.openalex",
         "cited_by_count.openalex",
         "citation_normalized_percentile.value.openalex",
@@ -151,6 +152,7 @@ def explode_by_institution(df: pd.DataFrame) -> pd.DataFrame:
 
     out = df[cols].explode("institution_pairs", ignore_index=True)
     out = out[out["institution_pairs"].notna()].copy()
+    
     out[["institution_id", "institution_label"]] = pd.DataFrame(
         out["institution_pairs"].tolist(), index=out.index
     )
@@ -174,8 +176,11 @@ def compute_institution_table(exploded: pd.DataFrame) -> tuple[pd.DataFrame, int
     total_works = dedup["work_id.openalex"].nunique()
     total_citations = int(dedup.drop_duplicates("work_id.openalex")["cited_by_count.openalex"].sum())
 
+    
+
     grp = dedup.groupby("institution_id", as_index=False).agg(
         UNIVERSITY=("institution_label", "first"),
+        SDG=("SDG.sdg_display_name.openalex", "unique"),
         P=("work_id.openalex", "nunique"),
         C=("cited_by_count.openalex", "sum"),
         FWCI=("fwci.openalex", "mean"),
@@ -189,6 +194,7 @@ def compute_institution_table(exploded: pd.DataFrame) -> tuple[pd.DataFrame, int
         Top10P=("citation_normalized_percentile.is_in_top_10_percent.openalex", "mean"),
         OA=("open_access.is_oa", "mean"),
     )
+    
 
     grp["PctP"] = (grp["P"] / total_works * 100.0) if total_works else 0.0
     grp["PctC"] = (grp["C"] / total_citations * 100.0) if total_citations else 0.0
@@ -223,6 +229,10 @@ def compute_institute_overall_row(institute_df: pd.DataFrame, global_denominator
     inst_dedup = inst_exploded.drop_duplicates(subset=["work_id.openalex"]).copy()
     inst_total_works = inst_dedup["work_id.openalex"].nunique()
     inst_total_citations = int(inst_dedup["cited_by_count.openalex"].sum())
+    
+    
+    inst_SDGs = inst_exploded.groupby(by='institution_id').agg({'SDG.sdg_display_name.openalex':lambda x: list(x)})
+    # print(inst_SDGs)
 
     per_work = inst_df[[
         "work_id.openalex",
@@ -244,14 +254,18 @@ def compute_institute_overall_row(institute_df: pd.DataFrame, global_denominator
         axis=1,
     )
 
+    
     top1_share = per_work["citation_normalized_percentile.is_in_top_1_percent.openalex"].mean(skipna=True)
     top10_share = per_work["citation_normalized_percentile.is_in_top_10_percent.openalex"].mean(skipna=True)
     oa_share = per_work["open_access.is_oa"].mean(skipna=True)
 
     global_total_works, global_total_citations = global_denominators
+    print(inst_SDGs)
+
     return {
         "institution_id": "INSTITUTE_CORE_AREA",
         "UNIVERSITY": INSTITUTE_LABEL,
+        "SDG": ";".join(inst_SDGs),
         "#P": inst_total_works,
         "%P": (inst_total_works / global_total_works * 100.0) if global_total_works else 0.0,
         "#C": inst_total_citations,
@@ -284,7 +298,7 @@ def build_institution_metrics_dataframe(dataset: str = DATASET) -> pd.DataFrame:
         [summary, pd.DataFrame([compute_institute_overall_row(institute_df, global_denoms)])],
         ignore_index=True,
     )
-
+    print(final_df["SDG"])
     final_df["__sort_core_last"] = (final_df["UNIVERSITY"] == INSTITUTE_LABEL).astype(int)
     final_df = final_df.sort_values(["__sort_core_last", "#P", "#C"], ascending=[True, False, False]).reset_index(drop=True)
 
@@ -299,7 +313,7 @@ def build_institution_metrics_dataframe(dataset: str = DATASET) -> pd.DataFrame:
 
 
 def show_institution_table_itables(dataset: str = DATASET):
-    init_notebook_mode(all_interactive=True)
+    # init_notebook_mode(all_interactive=True)
     df = build_institution_metrics_dataframe(dataset=dataset)
 
     sort_col_idx = df.columns.get_loc("__sort_core_last")

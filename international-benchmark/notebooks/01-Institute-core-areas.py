@@ -198,6 +198,9 @@ def _flatten_work(work: dict) -> dict:
     author_names = []
     inst_ids_per_author = []
     inst_names_per_author = []
+    sdg_names = []
+    sdg_scores = []
+    sdg_ids = []
 
     for a in authorships:
         a_author = a.get("author") or {}
@@ -207,13 +210,13 @@ def _flatten_work(work: dict) -> dict:
         insts = a.get("institutions") or []
         inst_ids_per_author.append(";".join([i.get("id", "") or "" for i in insts]))
         inst_names_per_author.append(";".join([i.get("display_name", "") or "" for i in insts]))
-    sdg_names = []
-    sdg_scores = []
-    sdg_ids = []
+    
+    
     for sdg in sdgs:
         sdg_names.append(sdg.get("display_name", "") or "")
         sdg_scores.append(float(sdg.get("score", 0.0) or 0.0))
         sdg_ids.append(sdg.get("id", "") or "")
+
 
     return {
         "primary_topic.topic_id.openalex": topic.get("id", "") or "",
@@ -221,7 +224,7 @@ def _flatten_work(work: dict) -> dict:
         "primary_topic.topic_display_name.openalex": topic.get("display_name", "") or "",
 
         "SDG.sdg_display_name.openalex": ";".join(sdg_names),
-        "SDG.sdg_score.openalex": ";".join(sdg_scores),
+        "SDG.sdg_score.openalex": ";".join(str(sdg_scores)),
         "SDG.sdg_id.openalex": ";".join(sdg_ids),
 
         "authorships.author.author_id.openalex": ";".join(author_ids),
@@ -283,7 +286,7 @@ def fetch_openalex_data_for_topic(topic_id: str, start_year: int, end_year: int,
 
     local_session = session or requests.Session()
     out = []
-
+    
     while True:
         resp = _retry_get(local_session, base_url, headers=headers, params=params)
         if not resp or not resp.ok:
@@ -292,13 +295,14 @@ def fetch_openalex_data_for_topic(topic_id: str, start_year: int, end_year: int,
 
         payload = resp.json() or {}
         works = payload.get("results") or []
+        
         out.extend(_flatten_work(w) for w in works)
-
+        
         next_cursor = (payload.get("meta") or {}).get("next_cursor")
         if not next_cursor:
             break
         params["cursor"] = next_cursor
-
+    
     return out
 
 # -------------------- Parallel wrapper ---------------------

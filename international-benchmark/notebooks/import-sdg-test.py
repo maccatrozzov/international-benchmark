@@ -409,7 +409,7 @@ def fetch_openalex_data_for_institute(sdg_id: str, institute_id: str, start_year
     headers = {"User-Agent": _user_agent("TopicWorks")}
     params = {
         "filter": f"sustainable_development_goals.id:{sdg_id},publication_year:{int(start_year)}-{int(end_year)},authorships.affiliations.institution_ids:{institute_id}",
-        "select" : "doi, fwci, publication_date, citation_normalized_percentile, cited_by_count",
+        # "select" : "doi, fwci, publication_date, citation_normalized_percentile, cited_by_count",
         "per-page": int(per_page),
         "cursor": "*",
         **_openalex_params(),
@@ -505,50 +505,113 @@ def create_global_core_area_parallel(
 
     return df
 
+def institutes_core_area_parallel(
+    df_institute_core_area: pd.DataFrame,
+    *,
+    start_year: int = START_YEAR,
+    end_year: int = END_YEAR,
+    max_workers: int = 8,
+    per_page: int = 200,
+) -> pd.DataFrame:
+    """
+    Parallelizes over topics using threads. Each topic paginates sequentially with a shared requests.Session.
+    - Threads are appropriate because requests is I/O-bound.
+    - Adjust max_workers conservatively to respect OpenAlex rate limits.
+    """
+
+    ## add instute AND sdg to the query
+    # institutes = 
+    sdgs = _unique_clean_sdgs(df_institute_core_area)
+    sdgs_cleaned = []
+    for sdg in sdgs:
+        sdgs_cleaned.append(sdg.replace('https://metadata.un.org/sdg/',''))
+   
+    if not institutes:
+        return pd.DataFrame(columns=df_institute_core_area.columns)
+
+    all_rows: list[dict] = []
+    
+    with requests.Session() as session:
+        session.headers.update({"User-Agent": _user_agent("Pool")})
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    fetch_openalex_data_for_institute,
+                    sdg_id = sdg,
+                    inst_id = inst,
+                    start_year = start_year,
+                    end_year = end_year,
+                    per_page = per_page,
+                    session = session,
+                ): sdg
+                for sdg in sdgs
+            }
+
+            for fut in as_completed(futures):
+                sdg = futures[fut]
+                try:
+                    rows = fut.result()
+                    all_rows.extend(rows)
+                    print(f"[sdg {sdg[1]}] fetched {len(rows)} works.")
+                except Exception as e:
+                    print(f"[sdg {sdg[1]}] failed: {e}")
+
+    df = pd.DataFrame(all_rows)
+
+    # Deduplicate by Work ID (a work might appear under multiple top topics)
+    if not df.empty and "work_id.openalex" in df.columns:
+        df = df.drop_duplicates(subset=["work_id.openalex"]).reset_index(drop=True)
+
+    return df
+
 # -------------------- Usage --------------------
 
 
 # # Apply function
-df_institute_core_area, top_n_percentage = filter_top_n_sdgs(df, n)
-print(f"Top {n} most recurrent topics represent {top_n_percentage:.2f}% of the total data.")
-# df_institute_core_area.head()
-df_institute_core_area.to_pickle('data/processed/institute_core_area.pickle')
+# df_institute_core_area, top_n_percentage = filter_top_n_sdgs(df, n)
+# print(f"Top {n} most recurrent topics represent {top_n_percentage:.2f}% of the total data.")
+# # df_institute_core_area.head()
+# df_institute_core_area.to_pickle('data/processed/institute_core_area.pickle')
 
-# Run the estimate with the filtered dataframe
-estimate_total_works(df_institute_core_area, start_year=START_YEAR, end_year=END_YEAR)
+# # Run the estimate with the filtered dataframe
+# estimate_total_works(df_institute_core_area, start_year=START_YEAR, end_year=END_YEAR)
 
-df_global_core_area = create_global_core_area_parallel(
-    df_institute_core_area,
-    start_year=START_YEAR,
-    end_year=END_YEAR,
-    max_workers=8,
-    per_page=200
-)
+# df_global_core_area = create_global_core_area_parallel(
+#     df_institute_core_area,
+#     start_year=START_YEAR,
+#     end_year=END_YEAR,
+#     max_workers=8,
+#     per_page=200
+# )
 
-df_global_core_area.to_pickle('data/processed/global_core_area.pickle')
+# df_global_core_area.to_pickle('data/processed/global_core_area.pickle')
 
-# df_global_core_area = pd.read_pickle('data/processed/global_core_area.pickle')
-# print(df_global_core_area.head())
-# print("-------------")
-# sorted_df_global_core_area = df_global_core_area.sort_values(["sdg_id.openalex", "publication_count.openalex"], ascending= False).groupby('sdg_id.openalex')
-# print(sorted_df_global_core_area.head(10))
-# print(df_global_core_area.loc[df_global_core_area["institute.openalex"]=="University of Amsterdam"])
-
-
-
-# df_sum = df_global_core_area.groupby(["institute.openalex","institute_id.openalex"], as_index=False)['publication_count.openalex'].sum()
+df_global_core_area = pd.read_pickle('data/processed/global_core_area.pickle')
+print(df_global_core_area.head())
+print("-------------")
+sorted_df_global_core_area = df_global_core_area.sort_values(["sdg_id.openalex", "publication_count.openalex"], ascending= False).groupby('sdg_id.openalex')
+print(sorted_df_global_core_area.head(10))
+print(df_global_core_area.loc[df_global_core_area["institute.openalex"]=="University of Amsterdam"])
 
 
-# df_sum = df_sum.sort_values(["publication_count.openalex"], ascending= False)
-# min = df_sum.loc[df_sum["institute.openalex"]=="University of Amsterdam"]['publication_count.openalex'].values[0]
-# uvaRank = df_sum[df_sum['publication_count.openalex'] >= min].count().values[0]
+print(df_global_core_area.columns.values)
+
+df_sum = df_global_core_area.groupby(["institute.openalex","institute_is.openalex"], as_index=False)['publication_count.openalex'].sum()
 
 
-# ## select top 50 institutions or up to UvA rank
-# N = 50
-# if uvaRank > N:
-#     N = uvaRank
-# df_sum = df_sum.index[:N]
+df_sum = df_sum.sort_values(["publication_count.openalex"], ascending= False)
+min = df_sum.loc[df_sum["institute.openalex"]=="University of Amsterdam"]['publication_count.openalex'].values[0]
+uvaRank = df_sum[df_sum['publication_count.openalex'] >= min].count().values[0]
+
+
+## select top 50 institutions or up to UvA rank
+N = 50
+if uvaRank > N:
+    N = uvaRank
+df_sum = df_sum.index[:N]
+
+print(df_sum)
 
 
 # # # query for sdg, grouped by institution, open access publications:
